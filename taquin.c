@@ -13,7 +13,9 @@ typedef struct {
     int grid[MAX_GRID_SIZE][MAX_GRID_SIZE];
     int empty_x;
     int empty_y;
-    int size; // Current grid size (3, 4, or 5)
+    int size; 
+    Uint64 start_time; 
+    Uint64 end_time;   
 } GameState;
 
 typedef enum {
@@ -21,19 +23,38 @@ typedef enum {
     STATE_PLAYING
 } AppState;
 
-// Simple digit drawing segments for 0-9
 const int DIGIT_SEGMENTS[10][7] = {
-    {1, 1, 1, 1, 1, 1, 0}, // 0
-    {0, 1, 1, 0, 0, 0, 0}, // 1
-    {1, 1, 0, 1, 1, 0, 1}, // 2
-    {1, 1, 1, 1, 0, 0, 1}, // 3
-    {0, 1, 1, 0, 0, 1, 1}, // 4
-    {1, 0, 1, 1, 0, 1, 1}, // 5
-    {1, 0, 1, 1, 1, 1, 1}, // 6
-    {1, 1, 1, 0, 0, 0, 0}, // 7
-    {1, 1, 1, 1, 1, 1, 1}, // 8
-    {1, 1, 1, 1, 0, 1, 1}  // 9
+    {1, 1, 1, 1, 1, 1, 0}, 
+    {0, 1, 1, 0, 0, 0, 0}, 
+    {1, 1, 0, 1, 1, 0, 1}, 
+    {1, 1, 1, 1, 0, 0, 1}, 
+    {0, 1, 1, 0, 0, 1, 1}, 
+    {1, 0, 1, 1, 0, 1, 1}, 
+    {1, 0, 1, 1, 1, 1, 1}, 
+    {1, 1, 1, 0, 0, 0, 0}, 
+    {1, 1, 1, 1, 1, 1, 1}, 
+    {1, 1, 1, 1, 0, 1, 1}  
 };
+
+// --- VARIABLE GLOBALE ET FONCTIONS DE SAUVEGARDE ---
+long best_times[MAX_GRID_SIZE + 1] = {0}; 
+
+void load_best_scores() {
+    FILE *file = fopen("best_scores.txt", "r");
+    if (file) {
+        fscanf(file, "%ld %ld %ld", &best_times[3], &best_times[4], &best_times[5]);
+        fclose(file);
+    }
+}
+
+void save_best_scores() {
+    FILE *file = fopen("best_scores.txt", "w");
+    if (file) {
+        fprintf(file, "%ld %ld %ld", best_times[3], best_times[4], best_times[5]);
+        fclose(file);
+    }
+}
+// ---------------------------------------------------
 
 void init_game(GameState *game, int size) {
     if (size < 3) size = 3;
@@ -47,55 +68,53 @@ void init_game(GameState *game, int size) {
             count++;
         }
     }
-    // Set the last cell as empty (0)
     game->grid[game->size - 1][game->size - 1] = 0;
     game->empty_x = game->size - 1;
     game->empty_y = game->size - 1;
+
+    game->start_time = SDL_GetTicks();
+    game->end_time = 0;
 }
 
 void move_tile(GameState *game, int x, int y) {
-    // Check bounds
     if (x < 0 || x >= game->size || y < 0 || y >= game->size) return;
 
-    // Check if the move is valid (adjacent to the empty space)
     if ((abs(game->empty_x - x) == 1 && game->empty_y == y) || 
         (abs(game->empty_y - y) == 1 && game->empty_x == x)) {
         
-        // Swap
         game->grid[game->empty_y][game->empty_x] = game->grid[y][x];
         game->grid[y][x] = 0;
         
-        // Update empty position
         game->empty_x = x;
         game->empty_y = y;
     }
 }
 
 void shuffle_game(GameState *game) {
-    // Perform random valid moves to shuffle
     for (int i = 0; i < 1000; i++) {
         int direction = rand() % 4;
         int target_x = game->empty_x;
         int target_y = game->empty_y;
 
         switch (direction) {
-            case 0: target_y--; break; // Up
-            case 1: target_y++; break; // Down
-            case 2: target_x--; break; // Left
-            case 3: target_x++; break; // Right
+            case 0: target_y--; break; 
+            case 1: target_y++; break; 
+            case 2: target_x--; break; 
+            case 3: target_x++; break; 
         }
 
         if (target_x >= 0 && target_x < game->size && target_y >= 0 && target_y < game->size) {
             move_tile(game, target_x, target_y);
         }
     }
+    game->start_time = SDL_GetTicks();
+    game->end_time = 0;
 }
 
 bool check_win(GameState *game) {
     int count = 1;
     for (int y = 0; y < game->size; y++) {
         for (int x = 0; x < game->size; x++) {
-            // Last cell should be 0
             if (y == game->size - 1 && x == game->size - 1) {
                 if (game->grid[y][x] != 0) return false;
             } else {
@@ -107,7 +126,6 @@ bool check_win(GameState *game) {
     return true;
 }
 
-// Function to draw a number at a position using segments (adapted for SDL3 FRect)
 void draw_number(SDL_Renderer *renderer, int number, float x, float y, float size) {
     int digits[2];
     int num_digits = 0;
@@ -135,19 +153,12 @@ void draw_number(SDL_Renderer *renderer, int number, float x, float y, float siz
         float dy = start_y;
         
         SDL_FRect segs[7];
-        // Top
         segs[0] = (SDL_FRect){dx, dy, digit_width, stroke}; 
-        // TR
         segs[1] = (SDL_FRect){dx + digit_width - stroke, dy, stroke, digit_height / 2.0f}; 
-        // BR
         segs[2] = (SDL_FRect){dx + digit_width - stroke, dy + digit_height / 2.0f, stroke, digit_height / 2.0f}; 
-        // Bottom
         segs[3] = (SDL_FRect){dx, dy + digit_height - stroke, digit_width, stroke}; 
-        // BL
         segs[4] = (SDL_FRect){dx, dy + digit_height / 2.0f, stroke, digit_height / 2.0f}; 
-        // TL
         segs[5] = (SDL_FRect){dx, dy, stroke, digit_height / 2.0f}; 
-        // Center
         segs[6] = (SDL_FRect){dx, dy + digit_height / 2.0f - stroke / 2.0f, digit_width, stroke};
         
         for (int s = 0; s < 7; s++) {
@@ -158,39 +169,41 @@ void draw_number(SDL_Renderer *renderer, int number, float x, float y, float siz
     }
 }
 
-// Draw a simple Home icon
 void draw_home_icon(SDL_Renderer *renderer, float x, float y, float w, float h) {
-    // House body (square)
     SDL_FRect body = {x + w/4.0f, y + h/2.0f, w/2.0f, h/3.0f};
     SDL_RenderFillRect(renderer, &body);
     
-    // Roof (triangle approximated with lines)
     float cx = x + w/2.0f;
     float top_y = y + h/6.0f;
     
     for(int i=0; i<w/2; i++) {
         if ((top_y + i) >= (y + h/2.0f)) break;
         SDL_RenderLine(renderer, cx - i, top_y + i, cx + i, top_y + i);
-        // Fill gaps
         SDL_RenderLine(renderer, cx - i, top_y + i + 1, cx + i, top_y + i + 1);
     }
 }
 
-// Helper to show win dialog and return choice: 0=Replay, 1=Menu, 2=Quit
-int show_win_dialog(SDL_Window *window) {
+// --- VERSION AVEC SCORE ---
+int show_win_dialog(SDL_Window *window, long current_time, long best_time) {
     const SDL_MessageBoxButtonData buttons[] = {
         { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Replay" },
         { 0, 1, "Change Size" },
         { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 2, "Quit" },
     };
     
-    // SDL3 MessageBoxData structure might differ slightly or be same
-    // Checking basics: headers are good.
+    char message[256];
+    snprintf(message, sizeof(message), 
+             "Congratulations!\n\n"
+             "Time: %ld seconds\n"
+             "Best Record: %ld seconds\n\n"
+             "What would you like to do?", 
+             current_time, best_time);
+
     const SDL_MessageBoxData messageboxdata = {
         SDL_MESSAGEBOX_INFORMATION,
         window,
         "Victory!",
-        "You finished the puzzle! What would you like to do?",
+        message, 
         3,
         buttons,
         NULL
@@ -206,24 +219,22 @@ int show_win_dialog(SDL_Window *window) {
 
 int main(int argc, char *argv[]) {
     srand(time(NULL));
+    load_best_scores();
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
         return 1;
     }
 
-    // Start with a reasonable default window size for the menu
     int w_width = 4 * TILE_SIZE;
     int w_height = 4 * TILE_SIZE + UI_HEIGHT;
     
-    // SDL3: No x,y args
     SDL_Window *window = SDL_CreateWindow("Taquin (15-Puzzle) [SDL3]", w_width, w_height, 0); 
     if (window == NULL) {
         printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
         return 1;
     }
 
-    // SDL3: CreateRenderer takes window and name (or NULL)
     SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
     if (renderer == NULL) {
         printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -239,7 +250,7 @@ int main(int argc, char *argv[]) {
 
     while (running) {
         while (SDL_PollEvent(&e) != 0) {
-            if (e.type == SDL_EVENT_QUIT) { // SDL3 constant
+            if (e.type == SDL_EVENT_QUIT) { 
                 running = false;
             } 
             else if (state == STATE_MENU) {
@@ -263,7 +274,7 @@ int main(int argc, char *argv[]) {
                 }
                 else if (e.type == SDL_EVENT_KEY_DOWN) {
                    int selected_size = 0;
-                   if (e.key.key == SDLK_3) selected_size = 3; // SDL3: e.key.key for keycode
+                   if (e.key.key == SDLK_3) selected_size = 3; 
                    else if (e.key.key == SDLK_4 ) selected_size = 4;
                    else if (e.key.key == SDLK_5) selected_size = 5;
                    
@@ -291,15 +302,21 @@ int main(int argc, char *argv[]) {
                         move_tile(&game, x, y);
                         if (check_win(&game)) {
                             has_won = true;
-                            // Win handling moved to render loop to draw last frame first or right here?
-                            // Let's set a flag to show dialog AFTER drawing the move
+                            game.end_time = SDL_GetTicks(); 
+                            
+                            long duration = (long)((game.end_time - game.start_time) / 1000);
+                            
+                            if (best_times[game.size] == 0 || duration < best_times[game.size]) {
+                                best_times[game.size] = duration;
+                                save_best_scores(); 
+                                printf("New Record! %ld seconds\n", duration);
+                            }
                         }
                     } else {
                          if (e.button.button == SDL_BUTTON_RIGHT) {
                              state = STATE_MENU;
                              SDL_SetWindowSize(window, 4 * TILE_SIZE, 4 * TILE_SIZE + UI_HEIGHT);
                         } else {
-                            // Manual replay click
                             shuffle_game(&game);
                             has_won = false;
                         }
@@ -325,6 +342,15 @@ int main(int argc, char *argv[]) {
                             move_tile(&game, target_x, target_y);
                              if (check_win(&game)) {
                                 has_won = true;
+                                game.end_time = SDL_GetTicks(); 
+                                
+                                long duration = (long)((game.end_time - game.start_time) / 1000);
+                                
+                                if (best_times[game.size] == 0 || duration < best_times[game.size]) {
+                                    best_times[game.size] = duration;
+                                    save_best_scores(); 
+                                    printf("New Record! %ld seconds\n", duration);
+                                }
                             }
                         }
                      } else {
@@ -337,7 +363,6 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Render
         SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
         SDL_RenderClear(renderer);
 
@@ -363,7 +388,6 @@ int main(int argc, char *argv[]) {
                             (float)(TILE_SIZE - 2 * GAP)
                         };
                         
-                        // If won, make them all green
                         if (has_won)
                             SDL_SetRenderDrawColor(renderer, 0, 200, 0, 255);
                         else if (val % 2 == 0)
@@ -388,23 +412,62 @@ int main(int argc, char *argv[]) {
             
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
             draw_home_icon(renderer, w/2.0f - 20.0f, game.size * TILE_SIZE + 10.0f, 40.0f, 40.0f);
-            
-            // Handle win dialog AFTER rendering the frame so player sees the green state
+
+            float ui_y = game.size * TILE_SIZE + UI_HEIGHT / 2.0f;
+
+            long current_seconds;
             if (has_won) {
-                 SDL_RenderPresent(renderer); // Show the green frame first
+                current_seconds = (long)((game.end_time - game.start_time) / 1000);
+            } else {
+                current_seconds = (long)((SDL_GetTicks() - game.start_time) / 1000);
+            }
+
+            int min = current_seconds / 60;
+            int sec = current_seconds % 60;
+            draw_number(renderer, min, w - 90.0f, ui_y, 25.0f); 
+            
+            SDL_FRect dot = {w - 75.0f, ui_y - 5, 4, 4};
+            SDL_RenderFillRect(renderer, &dot);
+            dot.y += 10;
+            SDL_RenderFillRect(renderer, &dot);
+            
+            draw_number(renderer, sec, w - 50.0f, ui_y, 25.0f);
+
+            long best = best_times[game.size];
+            if (best > 0) { 
+                int b_min = best / 60;
+                int b_sec = best % 60;
+                SDL_SetRenderDrawColor(renderer, 255, 215, 0, 255); // Gold
+                draw_number(renderer, b_min, 50.0f, ui_y, 25.0f);
+                
+                SDL_FRect b_dot = {65.0f, ui_y - 5, 4, 4};
+                SDL_RenderFillRect(renderer, &b_dot);
+                b_dot.y += 10;
+                SDL_RenderFillRect(renderer, &b_dot);
+                
+                draw_number(renderer, b_sec, 90.0f, ui_y, 25.0f);
+            }
+            
+            if (has_won) {
+                 SDL_RenderPresent(renderer); 
                  
-                 int choice = show_win_dialog(window);
-                 if (choice == 0) { // Replay
-                     init_game(&game, game.size); // Reset fully or just shuffle? init resets pos.
+                 long final_time = (long)((game.end_time - game.start_time) / 1000);
+                 long best_record = best_times[game.size];
+
+                 // C'est ici qu'on appelle la nouvelle fonction avec les 3 paramètres
+                 int choice = show_win_dialog(window, final_time, best_record);
+
+                 if (choice == 0) { 
+                     init_game(&game, game.size); 
                      shuffle_game(&game);
                      has_won = false;
-                 } else if (choice == 1) { // Menu
+                 } else if (choice == 1) { 
                      state = STATE_MENU;
                      SDL_SetWindowSize(window, 4 * TILE_SIZE, 4 * TILE_SIZE + UI_HEIGHT);
-                 } else if (choice == 2) { // Quit
+                 } else if (choice == 2) { 
                      running = false;
                  }
-                 continue; // Skip the standard Present below to avoid flickering or just continue
+                 continue; 
             }
         }
 
